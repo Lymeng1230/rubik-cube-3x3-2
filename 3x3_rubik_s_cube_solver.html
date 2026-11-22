@@ -1,0 +1,2198 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>កម្មវិធីដោះស្រាយគូបរូប៊ីក 3x3</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- CubeJS Solver (Kociemba Two-Phase Algorithm) -->
+  <script src="https://cdn.jsdelivr.net/npm/cubejs@1.3.2/lib/cube.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cubejs@1.3.2/lib/solve.min.js"></script>
+  <!-- Google Fonts: Kantumruy Pro, Moul & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Kantumruy+Pro:wght@300;400;500;600;700&family=Moul&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html, body {
+      height: 100dvh;
+      margin: 0;
+      padding: 0;
+      font-family: 'Kantumruy Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #090d16;
+      color: #f8fafc;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .font-moul {
+      font-family: 'Moul', serif;
+    }
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    button, input[type="range"] {
+      touch-action: manipulation;
+    }
+    .touch-btn {
+      min-height: 44px;
+      min-width: 44px;
+      touch-action: manipulation;
+    }
+    /* Custom scrollbar for internal scroll areas */
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.4);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    #canvas-container {
+      touch-action: none;
+      overscroll-behavior: none;
+      cursor: grab;
+    }
+    #canvas-container:active {
+      cursor: grabbing;
+    }
+    .sticker-btn {
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      touch-action: manipulation;
+    }
+    .sticker-btn:active:not(.center-sticker) {
+      transform: scale(0.94);
+    }
+    .move-chip {
+      transition: all 0.15s ease;
+    }
+    .bottom-sheet-safe {
+      padding-bottom: calc(0.75rem + var(--safe-bottom));
+    }
+  </style>
+</head>
+<body class="h-[100dvh] w-full flex flex-col lg:overflow-hidden select-none">
+
+  <!-- Compact Mobile-First Header -->
+  <header class="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shrink-0 z-30">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <!-- Geometric Rubik's Icon -->
+        <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 grid grid-cols-2 gap-0.5 p-1.5 shrink-0">
+          <span class="bg-white rounded-[1.5px]"></span>
+          <span class="bg-rose-500 rounded-[1.5px]"></span>
+          <span class="bg-emerald-500 rounded-[1.5px]"></span>
+          <span class="bg-amber-400 rounded-[1.5px]"></span>
+        </div>
+        <h1 class="font-moul text-xs sm:text-sm text-white truncate tracking-wide">
+          ដោះស្រាយគូប 3x3
+        </h1>
+      </div>
+
+      <!-- Large Thumb-Friendly Mode Switcher -->
+      <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+        <button id="tab-play" onclick="switchMode('play')" class="min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 text-white shadow-sm transition">
+          លេង &amp; ច្របល់
+        </button>
+        <button id="tab-input" onclick="switchMode('input')" class="min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg text-slate-400 hover:text-white transition">
+          បញ្ចូលពណ៌ដោះស្រាយ
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification / Toast Banner -->
+  <div id="toast-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-3 pointer-events-none flex flex-col gap-2"></div>
+
+  <!-- Main Responsive Split Layout (Mobile: Top 3D + Bottom Sheet | Desktop: Left 3D + Right Panel) -->
+  <main class="flex-1 min-h-0 w-full max-w-7xl mx-auto flex flex-col lg:grid lg:grid-cols-12 lg:gap-5 lg:p-5 overflow-hidden">
+
+    <!-- Top / Left Section: 3D Cube Viewport (~46% height on mobile) -->
+    <section class="relative h-[45dvh] sm:h-[48dvh] lg:h-full lg:col-span-7 flex flex-col bg-slate-950 lg:rounded-2xl lg:border lg:border-slate-800 overflow-hidden shrink-0">
+
+      <!-- 3D Viewport Canvas -->
+      <div id="canvas-container" class="relative w-full h-full bg-[radial-gradient(circle_at_center,#162033_0%,#090d16_100%)]">
+
+        <!-- Top-Left Compact Orientation Legend Toggle & Pill -->
+        <div class="absolute top-2.5 left-2.5 z-20 flex flex-col gap-1.5">
+          <button onclick="toggleLegendPopover()" class="touch-btn px-2.5 py-1.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-[11px] font-medium text-slate-200 flex items-center gap-1.5 shadow-md">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>ទិសពណ៌ស្តង់ដារ</span>
+          </button>
+
+          <div id="orientation-legend-box" class="hidden bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl p-2.5 text-[11px] text-slate-300 shadow-xl">
+            <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-white inline-block"></i> លើ (U): ស</span>
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-[#ffd500] inline-block"></i> ក្រោម (D): លឿង</span>
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-[#009b48] inline-block"></i> មុខ (F): បៃតង</span>
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-[#0045ad] inline-block"></i> ក្រោយ (B): ខៀវ</span>
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-[#ff5800] inline-block"></i> ឆ្វេង (L): ទឹកក្រូច</span>
+              <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-[#b71234] inline-block"></i> ស្តាំ (R): ក្រហម</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top-Right Corner Utility Buttons (Sound Toggle, Reset Camera, Reset Cube) -->
+        <div class="absolute top-2.5 right-2.5 z-20 flex items-center gap-1.5">
+          <button id="btn-sound-toggle" onclick="toggleSound()" title="បើក/បិទសំឡេង" class="touch-btn w-11 h-11 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-slate-200 hover:bg-slate-800 flex items-center justify-center shadow-md">
+            <!-- Sound On SVG -->
+            <svg id="icon-sound-on" class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+            <!-- Sound Off SVG -->
+            <svg id="icon-sound-off" class="w-5 h-5 text-slate-500 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+          </button>
+
+          <button onclick="resetCameraView()" title="មុំមើលដើម" class="touch-btn px-3 h-11 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-slate-200 hover:bg-slate-800 flex items-center gap-1.5 text-xs font-medium shadow-md">
+            <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span class="hidden sm:inline">មុំដើម</span>
+          </button>
+
+          <button onclick="resetCube()" title="កំណត់គូបឡើងវិញ" class="touch-btn px-3 h-11 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-slate-200 hover:bg-slate-800 flex items-center gap-1.5 text-xs font-medium shadow-md">
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="hidden sm:inline">កំណត់ឡើងវិញ</span>
+          </button>
+        </div>
+
+        <!-- Floating Rotate vs Paint Mode Toggle (Visible ONLY in Input + Paint Mode for Touch Clarity) -->
+        <div id="touch-3d-action-bar" class="hidden absolute bottom-12 left-1/2 -translate-x-1/2 z-20 flex bg-slate-900/95 backdrop-blur-md p-1 rounded-2xl border border-slate-700 shadow-xl">
+          <button id="btn-3d-rotate" onclick="setTouch3DAction('rotate')" class="touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-sky-600 text-white flex items-center gap-1.5 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>បង្វិលមើលគូប</span>
+          </button>
+          <button id="btn-3d-paint" onclick="setTouch3DAction('paint')" class="touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            <span>ប៉ះលាបពណ៌</span>
+          </button>
+        </div>
+
+        <!-- Solver Engine Loading Badge -->
+        <div id="solver-loading-badge" class="absolute bottom-12 left-3 z-20 bg-slate-900/90 border border-slate-700 text-slate-200 text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span>កំពុងរៀបចំប្រព័ន្ធគណនា...</span>
+        </div>
+
+        <!-- Compact Bottom Move Status Strip inside 3D Viewport -->
+        <div class="absolute bottom-0 inset-x-0 bg-slate-950/85 backdrop-blur-sm border-t border-slate-800/80 px-3 py-1.5 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <span id="current-move-badge" class="font-mono-code text-xs font-bold px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-emerald-400 shrink-0">
+              --
+            </span>
+            <span id="current-move-desc" class="text-[11px] sm:text-xs text-slate-300 truncate">
+              អូសលើគូបដើម្បីបង្វិលមុំមើល ៣៦០°
+            </span>
+          </div>
+          <span id="canvas-hint-text" class="hidden md:inline text-[11px] text-slate-500 shrink-0">
+            ក្តារចុច៖ U, D, L, R, F, B
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom / Right Section: Thumb-Friendly Bottom Control Sheet -->
+    <section class="flex-1 min-h-0 lg:col-span-5 bg-slate-900 border-t lg:border border-slate-800 rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col overflow-hidden z-20">
+
+      <!-- Sheet Drag Handle Pill (Mobile visual cue) -->
+      <div class="lg:hidden w-full flex justify-center pt-2 pb-1 shrink-0">
+        <div class="w-10 h-1 rounded-full bg-slate-700"></div>
+      </div>
+
+      <!-- Scrollable Inner Content Area -->
+      <div class="flex-1 min-h-0 overflow-y-auto px-3.5 sm:px-5 pt-1 bottom-sheet-safe flex flex-col gap-3">
+
+        <!-- =====================================================================
+             VIEW 1: PLAY & SCRAMBLE CONTROLS (Mode A)
+             ===================================================================== -->
+        <div id="panel-play" class="flex flex-col gap-3">
+          <!-- Primary Action Row: Scramble & Solve -->
+          <div class="grid grid-cols-2 gap-2.5">
+            <button onclick="scrambleCube()" class="touch-btn py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:bg-slate-700 border border-slate-700 text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition">
+              <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>ច្របល់គូប (២០)</span>
+            </button>
+
+            <button id="btn-solve-main" onclick="solveCurrentCube()" class="touch-btn py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2 transition">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>ដោះស្រាយគូប</span>
+            </button>
+          </div>
+
+          <!-- Touch-Friendly 12-Move Grid (44px+ buttons) -->
+          <div class="grid grid-cols-3 gap-2">
+            <!-- U & U' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-white inline-block"></span> លើ (U)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('U')" aria-label="Rotate U clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">U</button>
+                <button type="button" onclick="queueUserMove('U\u0027')" aria-label="Rotate U counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">U'</button>
+              </div>
+            </div>
+
+            <!-- D & D' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-[#ffd500] inline-block"></span> ក្រោម (D)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('D')" aria-label="Rotate D clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">D</button>
+                <button type="button" onclick="queueUserMove('D\u0027')" aria-label="Rotate D counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">D'</button>
+              </div>
+            </div>
+
+            <!-- F & F' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-[#009b48] inline-block"></span> មុខ (F)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('F')" aria-label="Rotate F clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">F</button>
+                <button type="button" onclick="queueUserMove('F\u0027')" aria-label="Rotate F counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">F'</button>
+              </div>
+            </div>
+
+            <!-- B & B' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-[#0045ad] inline-block"></span> ក្រោយ (B)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('B')" aria-label="Rotate B clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">B</button>
+                <button type="button" onclick="queueUserMove('B\u0027')" aria-label="Rotate B counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">B'</button>
+              </div>
+            </div>
+
+            <!-- L & L' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-[#ff5800] inline-block"></span> ឆ្វេង (L)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('L')" aria-label="Rotate L clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">L</button>
+                <button type="button" onclick="queueUserMove('L\u0027')" aria-label="Rotate L counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">L'</button>
+              </div>
+            </div>
+
+            <!-- R & R' -->
+            <div class="bg-slate-950/70 p-1.5 rounded-xl border border-slate-800 flex flex-col gap-1">
+              <div class="text-[10px] font-medium text-slate-400 text-center flex items-center justify-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-[#b71234] inline-block"></span> ស្តាំ (R)
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" onclick="queueUserMove('R')" aria-label="Rotate R clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">R</button>
+                <button type="button" onclick="queueUserMove('R\u0027')" aria-label="Rotate R counter-clockwise" class="touch-btn font-mono-code rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-emerald-600 text-sm font-bold text-white transition">R'</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Compact Notation Hint -->
+          <div class="bg-slate-950/60 rounded-xl px-3 py-2 border border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+            <span><strong class="font-mono-code text-slate-200">U,R,F...</strong> តាមទ្រនិចនាឡិកា</span>
+            <span><strong class="font-mono-code text-slate-200">U',R'...</strong> ច្រាសទ្រនិចនាឡិកា</span>
+          </div>
+        </div>
+
+        <!-- =====================================================================
+             VIEW 2: COLOR INPUT MODE (3 Sub-Modes + Combined Palette with x/9)
+             ===================================================================== -->
+        <div id="panel-input" class="hidden flex flex-col gap-2.5">
+
+          <!-- 3 Sub-Mode Tabs + Quick Reset Icons -->
+          <div class="flex items-center gap-1.5">
+            <div class="flex-1 grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button id="subtab-paint" onclick="switchInputSubMode('paint')" class="min-h-[38px] px-1.5 rounded-lg text-[11px] sm:text-xs font-semibold bg-slate-800 text-white shadow-2xs transition">
+                ១. លាបពណ៌
+              </button>
+              <button id="subtab-wizard" onclick="switchInputSubMode('wizard')" class="min-h-[38px] px-1.5 rounded-lg text-[11px] sm:text-xs font-medium text-slate-400 hover:text-white transition">
+                ២. តាមជ្រុង
+              </button>
+              <button id="subtab-camera" onclick="switchInputSubMode('camera')" class="min-h-[38px] px-1.5 rounded-lg text-[11px] sm:text-xs font-medium text-slate-400 hover:text-white transition">
+                ៣. កាមេរ៉ា
+              </button>
+            </div>
+
+            <button onclick="clearInputGrid()" title="សម្អាតពណ៌ (ទុកតែកណ្តាល)" class="touch-btn w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 flex items-center justify-center shrink-0">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+
+            <button onclick="resetInputToSolved()" title="កំណត់ពណ៌ដូចដើម" class="touch-btn w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 flex items-center justify-center shrink-0">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Combined Thumb-Sized Color Palette with Live x/9 Count Badges -->
+          <div id="shared-palette-section">
+            <div id="color-palette" class="grid grid-cols-6 gap-1.5">
+              <!-- Populated dynamically with x/9 badges -->
+            </div>
+          </div>
+
+          <!-- INPUT SUB-VIEW 1: 2D Unfolded Net (Paired with 3D Cube) -->
+          <div id="input-view-paint" class="flex flex-col gap-2">
+            <div class="bg-slate-950/80 p-2.5 rounded-2xl border border-slate-800 flex flex-col items-center justify-center overflow-x-auto">
+              <div class="grid grid-cols-4 gap-1.5 sm:gap-2">
+                <div></div>
+                <div id="net-U" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+                <div></div>
+                <div></div>
+
+                <div id="net-L" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+                <div id="net-F" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+                <div id="net-R" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+                <div id="net-B" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+
+                <div></div>
+                <div id="net-D" class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg"></div>
+                <div></div>
+                <div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- INPUT SUB-VIEW 2: Face-by-Face Guided Wizard -->
+          <div id="input-view-wizard" class="hidden flex flex-col gap-2.5 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span id="wizard-step-badge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white">ជ្រុង 1/6</span>
+                  <h3 id="wizard-face-title" class="text-xs sm:text-sm font-bold text-white truncate">ជ្រុងលើ (U - កណ្តាលពណ៌ស)</h3>
+                </div>
+                <p id="wizard-orientation-guide" class="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
+                  ដាក់ជ្រុងកណ្តាលពណ៌សនៅខាងលើ ហើយឱ្យជ្រុងកណ្តាលពណ៌បៃតងបែរមករកអ្នក។
+                </p>
+              </div>
+              <div id="wizard-center-preview" class="w-9 h-9 rounded-xl border border-slate-600 shrink-0 flex items-center justify-center font-bold text-xs">
+                U
+              </div>
+            </div>
+
+            <!-- Large 3x3 Touch Grid -->
+            <div class="flex justify-center py-1">
+              <div id="wizard-3x3-grid" class="grid grid-cols-3 gap-2 bg-slate-800 p-2.5 rounded-2xl shadow-inner">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+
+            <!-- Large Previous / Next Face Buttons -->
+            <div class="flex items-center justify-between gap-2">
+              <button id="btn-wizard-prev" onclick="wizardPrevFace()" class="touch-btn px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-semibold text-white transition">
+                មុន
+              </button>
+              <div class="flex gap-1.5" id="wizard-dots"></div>
+              <button id="btn-wizard-next" onclick="wizardNextFace()" class="touch-btn px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-semibold text-white transition">
+                បន្ទាប់
+              </button>
+            </div>
+          </div>
+
+          <!-- INPUT SUB-VIEW 3: Camera Color Scanner + Manual Tap Correction -->
+          <div id="input-view-camera" class="hidden flex flex-col gap-2.5 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+            <!-- Target Face Pills -->
+            <div class="grid grid-cols-6 gap-1">
+              <button onclick="setCameraTargetFace('U')" data-camface="U" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-bold border-2 border-emerald-500 bg-slate-800 text-white">លើ U</button>
+              <button onclick="setCameraTargetFace('F')" data-camface="F" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400">មុខ F</button>
+              <button onclick="setCameraTargetFace('R')" data-camface="R" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400">ស្តាំ R</button>
+              <button onclick="setCameraTargetFace('B')" data-camface="B" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400">ក្រោយ B</button>
+              <button onclick="setCameraTargetFace('L')" data-camface="L" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400">ឆ្វេង L</button>
+              <button onclick="setCameraTargetFace('D')" data-camface="D" class="cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400">ក្រោម D</button>
+            </div>
+
+            <!-- Side-by-side Camera Feed & Editable 3x3 Result Grid -->
+            <div class="grid grid-cols-2 gap-2.5 items-center">
+              <!-- Live Camera Box -->
+              <div class="relative aspect-square w-full bg-slate-900 rounded-xl overflow-hidden flex items-center justify-center border border-slate-700">
+                <video id="camera-video" autoplay playsinline muted class="w-full h-full object-cover hidden"></video>
+                <canvas id="camera-sample-canvas" class="hidden" width="180" height="180"></canvas>
+
+                <div id="camera-placeholder" class="text-center p-2 text-slate-400 flex flex-col items-center gap-1.5">
+                  <svg class="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span class="text-[10px] leading-tight">បើកកាមេរ៉ាដើម្បីស្កេន</span>
+                </div>
+
+                <!-- 3x3 Scanning Overlay -->
+                <div id="camera-grid-overlay" class="hidden absolute inset-0 flex items-center justify-center pointer-events-none p-3">
+                  <div class="w-full h-full grid grid-cols-3 gap-1 p-1 rounded-lg border border-white/80 bg-black/10">
+                    <div id="cam-cell-0" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-1" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-2" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-3" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-4" class="rounded border-2 border-amber-400"></div>
+                    <div id="cam-cell-5" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-6" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-7" class="rounded border border-white/70"></div>
+                    <div id="cam-cell-8" class="rounded border border-white/70"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Editable 3x3 Preview Grid (Tap any cell to cycle/fix color if glare occurs) -->
+              <div class="flex flex-col items-center gap-1.5">
+                <span id="camera-target-label" class="text-[11px] font-semibold text-slate-300 text-center">ជ្រុងលើ (U)</span>
+                <div id="camera-mini-preview" class="grid grid-cols-3 gap-1.5 bg-slate-800 p-2 rounded-xl">
+                  <!-- 9 tappable cells -->
+                </div>
+                <span class="text-[10px] text-slate-400 text-center">ចុចលើក្រឡាដើម្បីកែពណ៌</span>
+              </div>
+            </div>
+
+            <!-- Camera Control Buttons -->
+            <div class="flex items-center gap-2">
+              <button id="btn-camera-toggle" onclick="toggleCamera()" class="touch-btn px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition">
+                បើកកាមេរ៉ា
+              </button>
+              <button id="btn-camera-switch" onclick="switchCameraFacing()" class="hidden touch-btn px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium transition">
+                ប្តូរមុខ/ក្រោយ
+              </button>
+              <button id="btn-camera-capture" onclick="captureCameraFace()" disabled class="touch-btn flex-1 py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-xs font-bold transition">
+                ចាប់យកពណ៌ជ្រុងនេះ
+              </button>
+            </div>
+          </div>
+
+          <!-- Compact Real-time Validation Status Box -->
+          <div id="realtime-validation-box" class="px-3 py-2 rounded-xl border text-[11px] flex items-center gap-2 bg-emerald-950/50 border-emerald-800/80 text-emerald-300">
+            <span id="validation-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+            <span id="validation-message" class="leading-snug">ពណ៌គូបត្រឹមត្រូវ និងរួចរាល់សម្រាប់ការដោះស្រាយ។</span>
+          </div>
+
+          <!-- Validate & Solve Primary CTA Button -->
+          <button onclick="applyAndSolveInput()" class="touch-btn w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-950/50 transition">
+            ផ្ទៀងផ្ទាត់ និងដោះស្រាយគូប
+          </button>
+        </div>
+
+        <!-- =====================================================================
+             VIEW 3: MOBILE SOLUTION PLAYER (Replaces Controls when Solved)
+             ===================================================================== -->
+        <div id="panel-solution" class="hidden flex flex-col gap-3">
+          <!-- Solution Top Header & Back Button -->
+          <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
+            <button onclick="exitSolutionPlayer()" class="touch-btn px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              <span>ត្រឡប់ក្រោយ</span>
+            </button>
+
+            <div class="text-right">
+              <span id="step-counter" class="text-xs font-bold px-3 py-1 rounded-lg bg-emerald-950 border border-emerald-800 text-emerald-400">
+                ជំហានទី 0 / 0
+              </span>
+            </div>
+          </div>
+
+          <!-- Prominent Active Step Card -->
+          <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3 flex items-center gap-3.5">
+            <div id="player-big-move" class="font-mono-code text-2xl sm:text-3xl font-bold w-16 h-16 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/60">
+              --
+            </div>
+            <div class="min-w-0 flex-1">
+              <div id="solution-summary" class="text-[11px] font-semibold text-emerald-400 mb-0.5">
+                រកឃើញដំណោះស្រាយ
+              </div>
+              <div id="player-move-explanation" class="text-xs sm:text-sm font-semibold text-white leading-snug">
+                ចុចប៊ូតុង «លេង» ឬ «បន្ទាប់» ដើម្បីចាប់ផ្តើមដោះស្រាយ
+              </div>
+            </div>
+          </div>
+
+          <!-- Horizontal Scrollable Step Pills -->
+          <div id="moves-sequence-box" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1.5 px-1 bg-slate-950/60 rounded-xl border border-slate-800/80">
+            <!-- Populated by JS -->
+          </div>
+
+          <!-- Large Mobile Player Controls: Previous | Play/Pause | Next -->
+          <div class="grid grid-cols-3 gap-2">
+            <button id="btn-prev-step" onclick="stepBackward()" disabled class="touch-btn py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs sm:text-sm font-semibold text-white flex items-center justify-center gap-1.5 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+              </svg>
+              <span>ថយក្រោយ</span>
+            </button>
+
+            <button id="btn-play-pause" onclick="toggleAutoPlay()" disabled class="touch-btn py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs sm:text-sm font-bold text-white flex items-center justify-center gap-1.5 shadow-md transition">
+              <span id="play-pause-text">លេង</span>
+            </button>
+
+            <button id="btn-next-step" onclick="stepForward()" disabled class="touch-btn py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs sm:text-sm font-semibold text-white flex items-center justify-center gap-1.5 transition">
+              <span>បន្ទាប់</span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Speed Control Slider -->
+          <div class="flex items-center justify-between gap-3 bg-slate-950/70 px-3.5 py-2 rounded-xl border border-slate-800">
+            <label for="speed-slider" class="text-xs font-medium text-slate-400 whitespace-nowrap">ល្បឿនបង្វិល៖</label>
+            <input id="speed-slider" type="range" min="100" max="800" step="50" value="350" class="flex-1 accent-emerald-500 cursor-pointer h-2 bg-slate-800 rounded-lg" />
+            <span id="speed-label" class="text-xs font-semibold text-emerald-400 w-12 text-right">មធ្យម</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <script>
+    /**
+     * ============================================================================
+     * RUBIK'S CUBE 3x3 SOLVER APPLICATION (MOBILE-FIRST KHMER EDITION)
+     * ============================================================================
+     */
+
+    // Standard Rubik's Color Palette
+    const COLOR_MAP = {
+      U: { hex: 0xffffff, css: '#ffffff', name: 'ស', textDark: true },
+      D: { hex: 0xffd500, css: '#ffd500', name: 'លឿង', textDark: true },
+      F: { hex: 0x009b48, css: '#009b48', name: 'បៃតង', textDark: false },
+      B: { hex: 0x0045ad, css: '#0045ad', name: 'ខៀវ', textDark: false },
+      L: { hex: 0xff5800, css: '#ff5800', name: 'ទឹកក្រូច', textDark: false },
+      R: { hex: 0xb71234, css: '#b71234', name: 'ក្រហម', textDark: false },
+      X: { hex: 0x334155, css: '#334155', name: 'ទទេ', textDark: false }
+    };
+
+    // Khmer Move Descriptions
+    const MOVE_DESCRIPTIONS = {
+      "U": "បង្វិលជាន់លើ (U) ៩០° តាមទ្រនិចនាឡិកា",
+      "U'": "បង្វិលជាន់លើ (U') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "U2": "បង្វិលជាន់លើ (U2) ១៨០° (២ ដង)",
+      "D": "បង្វិលជាន់ក្រោម (D) ៩០° តាមទ្រនិចនាឡិកា",
+      "D'": "បង្វិលជាន់ក្រោម (D') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "D2": "បង្វិលជាន់ក្រោម (D2) ១៨០° (២ ដង)",
+      "L": "បង្វិលជ្រុងឆ្វេង (L) ៩០° តាមទ្រនិចនាឡិកា",
+      "L'": "បង្វិលជ្រុងឆ្វេង (L') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "L2": "បង្វិលជ្រុងឆ្វេង (L2) ១៨០° (២ ដង)",
+      "R": "បង្វិលជ្រុងស្តាំ (R) ៩០° តាមទ្រនិចនាឡិកា",
+      "R'": "បង្វិលជ្រុងស្តាំ (R') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "R2": "បង្វិលជ្រុងស្តាំ (R2) ១៨០° (២ ដង)",
+      "F": "បង្វិលមុខ (F) ៩០° តាមទ្រនិចនាឡិកា",
+      "F'": "បង្វិលមុខ (F') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "F2": "បង្វិលមុខ (F2) ១៨០° (២ ដង)",
+      "B": "បង្វិលក្រោយ (B) ៩០° តាមទ្រនិចនាឡិកា",
+      "B'": "បង្វិលក្រោយ (B') ៩០° ច្រាសទ្រនិចនាឡិកា",
+      "B2": "បង្វិលក្រោយ (B2) ១៨០° (២ ដង)"
+    };
+
+    // Application State
+    let currentMode = 'play'; // 'play' | 'input'
+    let inputSubMode = 'paint'; // 'paint' | 'wizard' | 'camera'
+    let touch3DAction = 'rotate'; // 'rotate' | 'paint' (Prevents accidental painting when orbiting on mobile)
+    let selectedPaletteColor = 'U';
+    let solverReady = false;
+    let isPainting2D = false;
+    let isPainting3D = false;
+    let soundEnabled = true;
+    let audioCtx = null;
+
+    // Wizard State (6 standard faces order)
+    const WIZARD_FACES = [
+      {
+        face: 'U',
+        title: 'ជ្រុងលើ (U - កណ្តាលពណ៌ស)',
+        guide: 'ដាក់កណ្តាលពណ៌សនៅខាងលើ ហើយឱ្យពណ៌បៃតងបែរមករកអ្នក។',
+        camera: { radius: 6.4, theta: 0.01, phi: 0.28 }
+      },
+      {
+        face: 'F',
+        title: 'ជ្រុងមុខ (F - កណ្តាលពណ៌បៃតង)',
+        guide: 'រក្សាពណ៌សនៅខាងលើ ហើយមើលចំជ្រុងកណ្តាលពណ៌បៃតង។',
+        camera: { radius: 6.4, theta: 0.0, phi: Math.PI / 2.15 }
+      },
+      {
+        face: 'R',
+        title: 'ជ្រុងស្តាំ (R - កណ្តាលពណ៌ក្រហម)',
+        guide: 'រក្សាពណ៌សនៅខាងលើ ហើយមើលចំជ្រុងកណ្តាលពណ៌ក្រហម (ខាងស្តាំ)។',
+        camera: { radius: 6.4, theta: Math.PI / 2, phi: Math.PI / 2.15 }
+      },
+      {
+        face: 'B',
+        title: 'ជ្រុងក្រោយ (B - កណ្តាលពណ៌ខៀវ)',
+        guide: 'រក្សាពណ៌សនៅខាងលើ ហើយមើលចំជ្រុងកណ្តាលពណ៌ខៀវ (ខាងក្រោយ)។',
+        camera: { radius: 6.4, theta: Math.PI, phi: Math.PI / 2.15 }
+      },
+      {
+        face: 'L',
+        title: 'ជ្រុងឆ្វេង (L - កណ្តាលពណ៌ទឹកក្រូច)',
+        guide: 'រក្សាពណ៌សនៅខាងលើ ហើយមើលចំជ្រុងកណ្តាលពណ៌ទឹកក្រូច (ខាងឆ្វេង)។',
+        camera: { radius: 6.4, theta: -Math.PI / 2, phi: Math.PI / 2.15 }
+      },
+      {
+        face: 'D',
+        title: 'ជ្រុងក្រោម (D - កណ្តាលពណ៌លឿង)',
+        guide: 'ផ្ងារគូបឡើងដើម្បីមើលពណ៌លឿង ដោយពណ៌បៃតងនៅខាងលើ។',
+        camera: { radius: 6.4, theta: 0.01, phi: Math.PI - 0.28 }
+      }
+    ];
+    let wizardStepIndex = 0;
+
+    // Camera Scanner State
+    let cameraStream = null;
+    let cameraFacingMode = 'environment';
+    let cameraTargetFace = 'U';
+    let cameraDetectedColors = Array(9).fill('U');
+    let cameraLoopId = null;
+
+    // Logical State
+    let cubeState = createSolvedState();
+    let inputGridState = createSolvedState();
+
+    // Animation Queue & Playback State
+    let moveQueue = [];
+    let isAnimating = false;
+    let animationDuration = 350;
+
+    // Solution Playback State
+    let solutionMoves = [];
+    let currentSolutionIndex = 0;
+    let isAutoPlaying = false;
+    let autoPlayTimer = null;
+
+    // Three.js Globals
+    let scene, camera, renderer, cubeGroup;
+    let cubies = [];
+    let stickerMeshes = [];
+    let pivotGroup;
+    let raycaster = new THREE.Raycaster();
+    let pointerNDC = new THREE.Vector2();
+    let cameraSpherical = { radius: 6.4, theta: Math.PI / 4, phi: Math.PI / 3 };
+    let isDragging = false;
+    let prevPointer = { x: 0, y: 0 };
+
+    /**
+     * Web Audio Tactile Click Sound (No external audio files)
+     */
+    function playClickSound(pitch = 420) {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) audioCtx = new AudioContextClass();
+        }
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(pitch, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + 0.045);
+
+        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.045);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.05);
+      } catch (e) {
+        // Ignore audio errors on restricted devices
+      }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('icon-sound-on').classList.toggle('hidden', !soundEnabled);
+      document.getElementById('icon-sound-off').classList.toggle('hidden', soundEnabled);
+      if (soundEnabled) playClickSound(540);
+    }
+
+    function toggleLegendPopover() {
+      document.getElementById('orientation-legend-box').classList.toggle('hidden');
+    }
+
+    /**
+     * Create a clean solved cube state object
+     */
+    function createSolvedState() {
+      return {
+        U: Array(9).fill('U'),
+        R: Array(9).fill('R'),
+        F: Array(9).fill('F'),
+        D: Array(9).fill('D'),
+        L: Array(9).fill('L'),
+        B: Array(9).fill('B')
+      };
+    }
+
+    function cloneState(state) {
+      return {
+        U: [...state.U],
+        R: [...state.R],
+        F: [...state.F],
+        D: [...state.D],
+        L: [...state.L],
+        B: [...state.B]
+      };
+    }
+
+    /**
+     * Show non-blocking Khmer toast notification
+     */
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const styles = {
+        error: 'bg-rose-600 text-white border-rose-500',
+        success: 'bg-emerald-600 text-white border-emerald-500',
+        info: 'bg-slate-800 text-white border-slate-700'
+      };
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl shadow-xl border text-xs sm:text-sm font-medium transition-all duration-300 transform -translate-y-2 opacity-0 ${styles[type] || styles.info}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('-translate-y-2', 'opacity-0');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('-translate-y-2', 'opacity-0');
+        setTimeout(() => toast.remove(), 300);
+      }, 3600);
+    }
+
+    /**
+     * ============================================================================
+     * LOGICAL CUBE MOVE ENGINE (Exact Facelet Permutations)
+     * ============================================================================
+     */
+    function rotateFaceCW(faceArr) {
+      return [
+        faceArr[6], faceArr[3], faceArr[0],
+        faceArr[7], faceArr[4], faceArr[1],
+        faceArr[8], faceArr[5], faceArr[2]
+      ];
+    }
+
+    function applySingleQuarterTurn(state, face) {
+      const s = cloneState(state);
+      s[face] = rotateFaceCW(state[face]);
+
+      if (face === 'U') {
+        [s.F[0], s.F[1], s.F[2]] = [state.R[0], state.R[1], state.R[2]];
+        [s.L[0], s.L[1], s.L[2]] = [state.F[0], state.F[1], state.F[2]];
+        [s.B[0], s.B[1], s.B[2]] = [state.L[0], state.L[1], state.L[2]];
+        [s.R[0], s.R[1], s.R[2]] = [state.B[0], state.B[1], state.B[2]];
+      } else if (face === 'D') {
+        [s.R[6], s.R[7], s.R[8]] = [state.F[6], state.F[7], state.F[8]];
+        [s.B[6], s.B[7], s.B[8]] = [state.R[6], state.R[7], state.R[8]];
+        [s.L[6], s.L[7], s.L[8]] = [state.B[6], state.B[7], state.B[8]];
+        [s.F[6], s.F[7], s.F[8]] = [state.L[6], state.L[7], state.L[8]];
+      } else if (face === 'R') {
+        [s.B[6], s.B[3], s.B[0]] = [state.U[2], state.U[5], state.U[8]];
+        [s.D[2], s.D[5], s.D[8]] = [state.B[6], state.B[3], state.B[0]];
+        [s.F[2], s.F[5], s.F[8]] = [state.D[2], state.D[5], state.D[8]];
+        [s.U[2], s.U[5], s.U[8]] = [state.F[2], state.F[5], state.F[8]];
+      } else if (face === 'L') {
+        [s.F[0], s.F[3], s.F[6]] = [state.U[0], state.U[3], state.U[6]];
+        [s.D[0], s.D[3], s.D[6]] = [state.F[0], state.F[3], state.F[6]];
+        [s.B[8], s.B[5], s.B[2]] = [state.D[0], state.D[3], state.D[6]];
+        [s.U[0], s.U[3], s.U[6]] = [state.B[8], state.B[5], state.B[2]];
+      } else if (face === 'F') {
+        [s.R[0], s.R[3], s.R[6]] = [state.U[6], state.U[7], state.U[8]];
+        [s.D[2], s.D[1], s.D[0]] = [state.R[0], state.R[3], state.R[6]];
+        [s.L[8], s.L[5], s.L[2]] = [state.D[2], state.D[1], state.D[0]];
+        [s.U[6], s.U[7], s.U[8]] = [state.L[8], state.L[5], state.L[2]];
+      } else if (face === 'B') {
+        [s.L[0], s.L[3], s.L[6]] = [state.U[2], state.U[1], state.U[0]];
+        [s.D[6], s.D[7], s.D[8]] = [state.L[0], state.L[3], state.L[6]];
+        [s.R[8], s.R[5], s.R[2]] = [state.D[6], state.D[7], state.D[8]];
+        [s.U[2], s.U[1], s.U[0]] = [state.R[8], state.R[5], state.R[2]];
+      }
+      return s;
+    }
+
+    function applyMoveToState(state, move) {
+      const face = move[0];
+      const mod = move.slice(1);
+      let turns = 1;
+      if (mod === "'") turns = 3;
+      else if (mod === "2") turns = 2;
+
+      let res = state;
+      for (let i = 0; i < turns; i++) {
+        res = applySingleQuarterTurn(res, face);
+      }
+      return res;
+    }
+
+    function getInverseMove(move) {
+      const face = move[0];
+      const mod = move.slice(1);
+      if (mod === "'") return face;
+      if (mod === "2") return face + "2";
+      return face + "'";
+    }
+
+    function stateToFaceletString(state) {
+      return [
+        ...state.U,
+        ...state.R,
+        ...state.F,
+        ...state.D,
+        ...state.L,
+        ...state.B
+      ].join('');
+    }
+
+    function isStateSolved(state) {
+      return ['U', 'R', 'F', 'D', 'L', 'B'].every(face =>
+        state[face].every(sticker => sticker === face)
+      );
+    }
+
+    /**
+     * ============================================================================
+     * THREE.JS 3D CUBE RENDERING & TOUCH-SAFE INTERACTION
+     * ============================================================================
+     */
+    function initThreeJS() {
+      const container = document.getElementById('canvas-container');
+      scene = new THREE.Scene();
+
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
+      updateCameraPosition();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // Lighting tuned for Dark Mode vibrancy
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+      scene.add(ambientLight);
+
+      const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.42);
+      dirLight1.position.set(6, 10, 8);
+      scene.add(dirLight1);
+
+      const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.22);
+      dirLight2.position.set(-6, -8, -6);
+      scene.add(dirLight2);
+
+      cubeGroup = new THREE.Group();
+      scene.add(cubeGroup);
+
+      pivotGroup = new THREE.Group();
+      cubeGroup.add(pivotGroup);
+
+      build3DCubies();
+      sync3DCubeFromState(cubeState);
+
+      window.addEventListener('pointerup', () => {
+        isDragging = false;
+        isPainting2D = false;
+        isPainting3D = false;
+      });
+
+      // Prevent pull-to-refresh / page bounce when touching 3D canvas
+      const domEl = renderer.domElement;
+      domEl.addEventListener('touchstart', (e) => {
+        if (e.cancelable) e.preventDefault();
+      }, { passive: false });
+
+      domEl.addEventListener('touchmove', (e) => {
+        if (e.cancelable) e.preventDefault();
+      }, { passive: false });
+
+      domEl.addEventListener('pointerdown', (e) => {
+        // Only paint 3D stickers when explicitly switched to 'paint' action in Input+Paint mode
+        if (currentMode === 'input' && inputSubMode === 'paint' && touch3DAction === 'paint') {
+          const hit = raycast3DSticker(e);
+          if (hit) {
+            isPainting3D = true;
+            paint3DHitSticker(hit);
+            return;
+          }
+        }
+        isDragging = true;
+        prevPointer = { x: e.clientX, y: e.clientY };
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (isPainting3D && currentMode === 'input' && inputSubMode === 'paint' && touch3DAction === 'paint') {
+          const hit = raycast3DSticker(e);
+          if (hit) paint3DHitSticker(hit);
+          return;
+        }
+        if (!isDragging) return;
+        const dx = e.clientX - prevPointer.x;
+        const dy = e.clientY - prevPointer.y;
+        prevPointer = { x: e.clientX, y: e.clientY };
+
+        cameraSpherical.theta -= dx * 0.009;
+        cameraSpherical.phi -= dy * 0.009;
+        cameraSpherical.phi = Math.max(0.25, Math.min(Math.PI - 0.25, cameraSpherical.phi));
+        updateCameraPosition();
+      });
+
+      // Responsive Resize Observer for dynamic mobile viewport shifts
+      const resizeObserver = new ResizeObserver(() => {
+        if (!container) return;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (w > 0 && h > 0) {
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h);
+        }
+      });
+      resizeObserver.observe(container);
+
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    function updateCameraPosition() {
+      const { radius, theta, phi } = cameraSpherical;
+      camera.position.x = radius * Math.sin(phi) * Math.sin(theta);
+      camera.position.y = radius * Math.cos(phi);
+      camera.position.z = radius * Math.sin(phi) * Math.cos(theta);
+      camera.lookAt(0, 0, 0);
+    }
+
+    function resetCameraView() {
+      cameraSpherical = { radius: 6.4, theta: Math.PI / 4, phi: Math.PI / 3 };
+      updateCameraPosition();
+      playClickSound(480);
+    }
+
+    function setTouch3DAction(action) {
+      touch3DAction = action;
+      const btnRot = document.getElementById('btn-3d-rotate');
+      const btnPaint = document.getElementById('btn-3d-paint');
+      if (action === 'rotate') {
+        btnRot.className = 'touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-sky-600 text-white flex items-center gap-1.5 transition';
+        btnPaint.className = 'touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition';
+        document.getElementById('current-move-desc').textContent = 'អូសលើគូប 3D ដើម្បីបង្វិលមុំមើល';
+      } else {
+        btnPaint.className = 'touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 text-white flex items-center gap-1.5 transition';
+        btnRot.className = 'touch-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 transition';
+        document.getElementById('current-move-desc').textContent = 'ប៉ះលើក្រឡាគូប 3D ដើម្បីលាបពណ៌ដែលបានជ្រើស';
+      }
+      playClickSound(500);
+    }
+
+    function build3DCubies() {
+      cubies.forEach(c => cubeGroup.remove(c));
+      cubies = [];
+      stickerMeshes = [];
+
+      const cubieSize = 0.96;
+      const stickerSize = 0.85;
+      const stickerOffset = cubieSize / 2 + 0.006;
+
+      const coreGeo = new THREE.BoxGeometry(cubieSize, cubieSize, cubieSize);
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        roughness: 0.5,
+        metalness: 0.1
+      });
+
+      const stickerGeo = new THREE.PlaneGeometry(stickerSize, stickerSize);
+
+      const facesInfo = [
+        { dir: 'R', pos: [stickerOffset, 0, 0], rot: [0, Math.PI / 2, 0] },
+        { dir: 'L', pos: [-stickerOffset, 0, 0], rot: [0, -Math.PI / 2, 0] },
+        { dir: 'U', pos: [0, stickerOffset, 0], rot: [-Math.PI / 2, 0, 0] },
+        { dir: 'D', pos: [0, -stickerOffset, 0], rot: [Math.PI / 2, 0, 0] },
+        { dir: 'F', pos: [0, 0, stickerOffset], rot: [0, 0, 0] },
+        { dir: 'B', pos: [0, 0, -stickerOffset], rot: [0, Math.PI, 0] }
+      ];
+
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          for (let z = -1; z <= 1; z++) {
+            const cubie = new THREE.Mesh(coreGeo, coreMat);
+            cubie.position.set(x, y, z);
+            cubie.userData = { gridPos: { x, y, z }, stickers: {} };
+
+            facesInfo.forEach(f => {
+              const mat = new THREE.MeshStandardMaterial({
+                color: 0x0f172a,
+                roughness: 0.22,
+                metalness: 0.02
+              });
+              const plane = new THREE.Mesh(stickerGeo, mat);
+              plane.position.set(...f.pos);
+              plane.rotation.set(...f.rot);
+              plane.userData = { cubiePos: { x, y, z }, faceDir: f.dir, isExternal: false, faceletIndex: -1 };
+              cubie.add(plane);
+              cubie.userData.stickers[f.dir] = plane;
+              stickerMeshes.push(plane);
+            });
+
+            cubeGroup.add(cubie);
+            cubies.push(cubie);
+          }
+        }
+      }
+    }
+
+    function raycast3DSticker(pointerEvent) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNDC.x = ((pointerEvent.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNDC.y = -((pointerEvent.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointerNDC, camera);
+      const externalStickers = stickerMeshes.filter(s => s.userData.isExternal);
+      const intersects = raycaster.intersectObjects(externalStickers, false);
+      return intersects.length > 0 ? intersects[0].object : null;
+    }
+
+    function paint3DHitSticker(stickerMesh) {
+      const { faceDir, faceletIndex } = stickerMesh.userData;
+      if (!faceDir || faceletIndex < 0 || faceletIndex === 4) return;
+      if (inputGridState[faceDir][faceletIndex] === selectedPaletteColor) return;
+
+      playClickSound(600);
+      inputGridState[faceDir][faceletIndex] = selectedPaletteColor;
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      renderPaletteWithCounts();
+    }
+
+    function sync3DCubeFromState(state) {
+      let idx = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          for (let z = -1; z <= 1; z++) {
+            const cubie = cubies[idx++];
+            cubeGroup.add(cubie);
+            cubie.position.set(x, y, z);
+            cubie.rotation.set(0, 0, 0);
+            cubie.userData.gridPos = { x, y, z };
+
+            Object.values(cubie.userData.stickers).forEach(st => {
+              st.material.color.setHex(0x0f172a);
+              st.userData.isExternal = false;
+              st.userData.faceletIndex = -1;
+            });
+
+            if (y === 1) {
+              const i = (z + 1) * 3 + (x + 1);
+              const st = cubie.userData.stickers.U;
+              st.material.color.setHex(COLOR_MAP[state.U[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+            if (y === -1) {
+              const i = (1 - z) * 3 + (x + 1);
+              const st = cubie.userData.stickers.D;
+              st.material.color.setHex(COLOR_MAP[state.D[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+            if (z === 1) {
+              const i = (1 - y) * 3 + (x + 1);
+              const st = cubie.userData.stickers.F;
+              st.material.color.setHex(COLOR_MAP[state.F[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+            if (z === -1) {
+              const i = (1 - y) * 3 + (1 - x);
+              const st = cubie.userData.stickers.B;
+              st.material.color.setHex(COLOR_MAP[state.B[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+            if (x === -1) {
+              const i = (1 - y) * 3 + (z + 1);
+              const st = cubie.userData.stickers.L;
+              st.material.color.setHex(COLOR_MAP[state.L[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+            if (x === 1) {
+              const i = (1 - y) * 3 + (1 - z);
+              const st = cubie.userData.stickers.R;
+              st.material.color.setHex(COLOR_MAP[state.R[i]].hex);
+              st.userData.isExternal = true;
+              st.userData.faceletIndex = i;
+            }
+          }
+        }
+      }
+    }
+
+    function animateMove(move, customDuration = null, onComplete = null) {
+      isAnimating = true;
+      const face = move[0];
+      const mod = move.slice(1);
+
+      playClickSound(380);
+      document.getElementById('current-move-badge').textContent = move;
+      document.getElementById('current-move-desc').textContent = MOVE_DESCRIPTIONS[move] || move;
+
+      let axis = 'y';
+      let layerVal = 1;
+      let dir = -1;
+
+      if (face === 'U') { axis = 'y'; layerVal = 1; dir = -1; }
+      else if (face === 'D') { axis = 'y'; layerVal = -1; dir = 1; }
+      else if (face === 'R') { axis = 'x'; layerVal = 1; dir = -1; }
+      else if (face === 'L') { axis = 'x'; layerVal = -1; dir = 1; }
+      else if (face === 'F') { axis = 'z'; layerVal = 1; dir = -1; }
+      else if (face === 'B') { axis = 'z'; layerVal = -1; dir = 1; }
+
+      let multiplier = 1;
+      if (mod === "'") multiplier = -1;
+      else if (mod === "2") multiplier = 2;
+
+      const targetAngle = dir * multiplier * (Math.PI / 2);
+      const duration = (customDuration !== null ? customDuration : animationDuration) * (mod === "2" ? 1.25 : 1);
+
+      pivotGroup.rotation.set(0, 0, 0);
+      const activeCubies = cubies.filter(c => Math.round(c.position[axis]) === layerVal);
+      activeCubies.forEach(c => pivotGroup.add(c));
+
+      const startTime = performance.now();
+
+      function step(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        pivotGroup.rotation[axis] = targetAngle * eased;
+
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else {
+          cubeState = applyMoveToState(cubeState, move);
+          pivotGroup.rotation.set(0, 0, 0);
+          sync3DCubeFromState(cubeState);
+          isAnimating = false;
+          if (onComplete) onComplete();
+          processMoveQueue();
+        }
+      }
+
+      requestAnimationFrame(step);
+    }
+
+    function processMoveQueue() {
+      if (isAnimating || moveQueue.length === 0) return;
+      const nextItem = moveQueue.shift();
+      animateMove(nextItem.move, nextItem.duration, nextItem.onComplete);
+    }
+
+    function queueUserMove(move) {
+      if (currentMode !== 'play') return;
+      stopAutoPlay();
+      moveQueue.push({ move, duration: null });
+      processMoveQueue();
+    }
+
+    /**
+     * ============================================================================
+     * SCRAMBLE, RESET, AND MODE SWITCHING
+     * ============================================================================
+     */
+    function scrambleCube() {
+      if (isAnimating || moveQueue.length > 0) return;
+      stopAutoPlay();
+
+      const faces = ['U', 'D', 'L', 'R', 'F', 'B'];
+      const modifiers = ['', "'", '2'];
+      const scrambleSeq = [];
+      let lastFace = '';
+
+      for (let i = 0; i < 20; i++) {
+        let f;
+        do {
+          f = faces[Math.floor(Math.random() * faces.length)];
+        } while (f === lastFace);
+        lastFace = f;
+        const m = modifiers[Math.floor(Math.random() * modifiers.length)];
+        scrambleSeq.push(f + m);
+      }
+
+      scrambleSeq.forEach((mv, idx) => {
+        moveQueue.push({
+          move: mv,
+          duration: 75,
+          onComplete: idx === scrambleSeq.length - 1 ? () => {
+            document.getElementById('current-move-badge').textContent = 'រួចរាល់';
+            document.getElementById('current-move-desc').textContent = 'បានច្របល់ ២០ ជំហាន! ចុច «ដោះស្រាយគូប» ដើម្បីមើលជំហាន';
+          } : null
+        });
+      });
+
+      processMoveQueue();
+    }
+
+    function resetCube() {
+      stopAutoPlay();
+      moveQueue = [];
+      isAnimating = false;
+      cubeState = createSolvedState();
+      inputGridState = createSolvedState();
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      renderPaletteWithCounts();
+      if (inputSubMode === 'wizard') renderWizardStep();
+
+      // Return to active mode panel if currently in solution player
+      document.getElementById('panel-solution').classList.add('hidden');
+      if (currentMode === 'play') {
+        document.getElementById('panel-play').classList.remove('hidden');
+      } else {
+        document.getElementById('panel-input').classList.remove('hidden');
+      }
+
+      document.getElementById('current-move-badge').textContent = '--';
+      document.getElementById('current-move-desc').textContent = 'គូបត្រូវបានកំណត់ទៅសភាពដើមវិញ';
+      playClickSound(440);
+    }
+
+    function switchMode(mode) {
+      if (isAnimating || moveQueue.length > 0) {
+        showToast('សូមរង់ចាំឱ្យចលនាបង្វិលបញ្ចប់សិន', 'info');
+        return;
+      }
+      stopAutoPlay();
+      currentMode = mode;
+
+      const tabPlay = document.getElementById('tab-play');
+      const tabInput = document.getElementById('tab-input');
+      const panelPlay = document.getElementById('panel-play');
+      const panelInput = document.getElementById('panel-input');
+      const panelSolution = document.getElementById('panel-solution');
+      const action3DBar = document.getElementById('touch-3d-action-bar');
+
+      panelSolution.classList.add('hidden');
+
+      if (mode === 'play') {
+        stopCamera();
+        action3DBar.classList.add('hidden');
+        tabPlay.className = 'min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 text-white shadow-sm transition';
+        tabInput.className = 'min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg text-slate-400 hover:text-white transition';
+        panelPlay.classList.remove('hidden');
+        panelInput.classList.add('hidden');
+        document.getElementById('current-move-desc').textContent = 'អូសលើគូបដើម្បីបង្វិលមុំមើល ៣៦០°';
+      } else {
+        tabInput.className = 'min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg bg-emerald-600 text-white shadow-sm transition';
+        tabPlay.className = 'min-h-[36px] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold rounded-lg text-slate-400 hover:text-white transition';
+        panelInput.classList.remove('hidden');
+        panelPlay.classList.add('hidden');
+
+        inputGridState = cloneState(cubeState);
+        switchInputSubMode(inputSubMode);
+      }
+      playClickSound(500);
+    }
+
+    function switchInputSubMode(subMode) {
+      inputSubMode = subMode;
+
+      ['paint', 'wizard', 'camera'].forEach(m => {
+        const btn = document.getElementById(`subtab-${m}`);
+        const view = document.getElementById(`input-view-${m}`);
+        if (m === subMode) {
+          btn.className = 'min-h-[38px] px-1.5 rounded-lg text-[11px] sm:text-xs font-semibold bg-slate-800 text-white shadow-2xs transition';
+          view.classList.remove('hidden');
+        } else {
+          btn.className = 'min-h-[38px] px-1.5 rounded-lg text-[11px] sm:text-xs font-medium text-slate-400 hover:text-white transition';
+          view.classList.add('hidden');
+        }
+      });
+
+      const paletteSection = document.getElementById('shared-palette-section');
+      const action3DBar = document.getElementById('touch-3d-action-bar');
+
+      if (subMode === 'paint') {
+        stopCamera();
+        paletteSection.classList.remove('hidden');
+        action3DBar.classList.remove('hidden');
+        setTouch3DAction(touch3DAction);
+        render2DNet();
+        renderPaletteWithCounts();
+      } else if (subMode === 'wizard') {
+        stopCamera();
+        paletteSection.classList.remove('hidden');
+        action3DBar.classList.add('hidden');
+        renderWizardStep();
+        renderPaletteWithCounts();
+      } else if (subMode === 'camera') {
+        paletteSection.classList.add('hidden');
+        action3DBar.classList.add('hidden');
+        initCameraMiniPreview();
+        updateRealtimeValidationBanner();
+      }
+      playClickSound(480);
+    }
+
+    /**
+     * ============================================================================
+     * COMBINED THUMB PALETTE WITH LIVE x/9 COUNTS & 2D/3D PAINTING
+     * ============================================================================
+     */
+    function selectPaletteColor(colorKey) {
+      selectedPaletteColor = colorKey;
+      renderPaletteWithCounts();
+      playClickSound(560);
+    }
+
+    function renderPaletteWithCounts() {
+      const counts = { U: 0, D: 0, F: 0, B: 0, L: 0, R: 0 };
+      ['U', 'R', 'F', 'D', 'L', 'B'].forEach(f => {
+        inputGridState[f].forEach(c => {
+          if (counts[c] !== undefined) counts[c]++;
+        });
+      });
+
+      const paletteEl = document.getElementById('color-palette');
+      if (!paletteEl) return;
+
+      paletteEl.innerHTML = ['U', 'D', 'F', 'B', 'L', 'R'].map(c => {
+        const count = counts[c];
+        const isSelected = selectedPaletteColor === c;
+        const ok = count === 9;
+        const over = count > 9;
+
+        let badgeClass = 'text-slate-400';
+        if (ok) badgeClass = 'text-emerald-400 font-bold';
+        else if (over) badgeClass = 'text-rose-400 font-bold';
+
+        const ringClass = isSelected
+          ? 'border-2 border-emerald-400 bg-slate-800 scale-[1.03] shadow-md'
+          : 'border border-slate-800 bg-slate-950/80 hover:border-slate-600';
+
+        return `
+          <button type="button" onclick="selectPaletteColor('${c}')" class="touch-btn flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl ${ringClass} transition">
+            <span class="w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-black/30 shadow-inner" style="background-color: ${COLOR_MAP[c].css}"></span>
+            <span class="text-[10px] leading-none font-medium text-slate-200">${COLOR_MAP[c].name}</span>
+            <span class="text-[10px] leading-none font-mono-code ${badgeClass}">${count}/9</span>
+          </button>
+        `;
+      }).join('');
+
+      updateRealtimeValidationBanner();
+    }
+
+    function clearInputGrid() {
+      ['U', 'D', 'F', 'B', 'L', 'R'].forEach(face => {
+        inputGridState[face] = Array(9).fill('X');
+        inputGridState[face][4] = face;
+      });
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      renderPaletteWithCounts();
+      if (inputSubMode === 'wizard') renderWizardStep();
+      playClickSound(400);
+      showToast('បានសម្អាតក្រឡាពណ៌ទាំងអស់ លើកលែងក្រឡាកណ្តាល', 'info');
+    }
+
+    function resetInputToSolved() {
+      inputGridState = createSolvedState();
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      renderPaletteWithCounts();
+      if (inputSubMode === 'wizard') renderWizardStep();
+      playClickSound(480);
+      showToast('បានកំណត់ពណ៌គូបដូចសភាពដើមវិញ', 'info');
+    }
+
+    function applyStickerPaint(face, index) {
+      if (index === 4) return;
+      inputGridState[face][index] = selectedPaletteColor;
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      renderPaletteWithCounts();
+      if (inputSubMode === 'wizard') renderWizardStep();
+      playClickSound(600);
+    }
+
+    function render2DNet() {
+      const faces = ['U', 'L', 'F', 'R', 'B', 'D'];
+      faces.forEach(face => {
+        const container = document.getElementById(`net-${face}`);
+        if (!container) return;
+        container.innerHTML = '';
+
+        for (let i = 0; i < 9; i++) {
+          const stickerColor = inputGridState[face][i];
+          const isCenter = i === 4;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `sticker-btn w-7 h-7 sm:w-8 sm:h-8 rounded-[5px] flex items-center justify-center text-[10px] font-bold ${isCenter ? 'center-sticker cursor-not-allowed' : 'cursor-pointer'}`;
+          btn.style.backgroundColor = COLOR_MAP[stickerColor].css;
+
+          if (isCenter) {
+            btn.textContent = face;
+            btn.style.color = COLOR_MAP[face].textDark ? '#0f172a' : '#ffffff';
+          }
+
+          if (!isCenter) {
+            btn.addEventListener('pointerdown', (e) => {
+              e.preventDefault();
+              isPainting2D = true;
+              applyStickerPaint(face, i);
+            });
+            btn.addEventListener('pointerenter', () => {
+              if (isPainting2D) applyStickerPaint(face, i);
+            });
+          }
+
+          container.appendChild(btn);
+        }
+      });
+    }
+
+    /**
+     * Face-by-Face Guided Wizard Functions
+     */
+    function renderWizardStep() {
+      const stepData = WIZARD_FACES[wizardStepIndex];
+      const face = stepData.face;
+
+      document.getElementById('wizard-step-badge').textContent = `ជ្រុង ${wizardStepIndex + 1}/6`;
+      document.getElementById('wizard-face-title').textContent = stepData.title;
+      document.getElementById('wizard-orientation-guide').textContent = stepData.guide;
+
+      const centerPreview = document.getElementById('wizard-center-preview');
+      centerPreview.style.backgroundColor = COLOR_MAP[face].css;
+      centerPreview.style.color = COLOR_MAP[face].textDark ? '#0f172a' : '#ffffff';
+      centerPreview.textContent = face;
+
+      // Auto-orient 3D cube to active face
+      cameraSpherical = { ...stepData.camera };
+      updateCameraPosition();
+
+      // Render large 48px+ 3x3 grid for thumb comfort
+      const grid = document.getElementById('wizard-3x3-grid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 9; i++) {
+        const stickerColor = inputGridState[face][i];
+        const isCenter = i === 4;
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = `sticker-btn w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center text-xs font-bold shadow-sm ${isCenter ? 'center-sticker cursor-not-allowed ring-2 ring-white/40' : 'cursor-pointer'}`;
+        cell.style.backgroundColor = COLOR_MAP[stickerColor].css;
+
+        if (isCenter) {
+          cell.textContent = face;
+          cell.style.color = COLOR_MAP[face].textDark ? '#0f172a' : '#ffffff';
+        } else {
+          cell.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            isPainting2D = true;
+            applyStickerPaint(face, i);
+          });
+          cell.addEventListener('pointerenter', () => {
+            if (isPainting2D) applyStickerPaint(face, i);
+          });
+        }
+        grid.appendChild(cell);
+      }
+
+      const dotsEl = document.getElementById('wizard-dots');
+      dotsEl.innerHTML = WIZARD_FACES.map((wf, idx) => `
+        <button type="button" onclick="wizardGoTo(${idx})" class="w-3 h-3 rounded-full transition ${idx === wizardStepIndex ? 'bg-emerald-400 scale-125' : 'bg-slate-700 hover:bg-slate-600'}"></button>
+      `).join('');
+
+      document.getElementById('btn-wizard-prev').disabled = wizardStepIndex === 0;
+      const nextBtn = document.getElementById('btn-wizard-next');
+      nextBtn.textContent = wizardStepIndex === 5 ? 'រួចរាល់' : 'បន្ទាប់';
+    }
+
+    function wizardGoTo(idx) {
+      wizardStepIndex = Math.max(0, Math.min(5, idx));
+      renderWizardStep();
+      playClickSound(480);
+    }
+
+    function wizardPrevFace() {
+      if (wizardStepIndex > 0) {
+        wizardStepIndex--;
+        renderWizardStep();
+        playClickSound(480);
+      }
+    }
+
+    function wizardNextFace() {
+      if (wizardStepIndex < 5) {
+        wizardStepIndex++;
+        renderWizardStep();
+        playClickSound(520);
+      } else {
+        switchInputSubMode('paint');
+        showToast('បានបញ្ចូលគ្រប់ ៦ ជ្រុងរួចរាល់! សូមចុច «ផ្ទៀងផ្ទាត់ និងដោះស្រាយគូប»', 'success');
+      }
+    }
+
+    /**
+     * Camera Color Scanner with Manual Tap-to-Cycle Correction
+     */
+    const COLOR_CYCLE_ORDER = ['U', 'D', 'F', 'B', 'L', 'R'];
+
+    function initCameraMiniPreview() {
+      const mini = document.getElementById('camera-mini-preview');
+      if (!mini) return;
+      cameraDetectedColors = [...inputGridState[cameraTargetFace]];
+      cameraDetectedColors[4] = cameraTargetFace;
+
+      mini.innerHTML = Array(9).fill(0).map((_, i) => {
+        const isCenter = i === 4;
+        const col = cameraDetectedColors[i] === 'X' ? cameraTargetFace : cameraDetectedColors[i];
+        cameraDetectedColors[i] = col;
+        return `
+          <button type="button" onclick="cycleCameraDetectedCell(${i})" id="cam-mini-${i}"
+            class="w-7 h-7 sm:w-8 sm:h-8 rounded-md flex items-center justify-center text-[10px] font-bold ${isCenter ? 'cursor-not-allowed' : 'cursor-pointer active:scale-90'} transition"
+            style="background-color: ${COLOR_MAP[col].css}; color: ${COLOR_MAP[col].textDark ? '#0f172a' : '#ffffff'}">
+            ${isCenter ? cameraTargetFace : ''}
+          </button>
+        `;
+      }).join('');
+    }
+
+    function cycleCameraDetectedCell(idx) {
+      if (idx === 4) return;
+      const curr = cameraDetectedColors[idx];
+      const next = COLOR_CYCLE_ORDER[(COLOR_CYCLE_ORDER.indexOf(curr) + 1) % COLOR_CYCLE_ORDER.length];
+      cameraDetectedColors[idx] = next;
+
+      // Also apply immediately to inputGridState so user fixes glare live
+      inputGridState[cameraTargetFace][idx] = next;
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      updateRealtimeValidationBanner();
+
+      const btn = document.getElementById(`cam-mini-${idx}`);
+      if (btn) btn.style.backgroundColor = COLOR_MAP[next].css;
+      playClickSound(580);
+    }
+
+    function setCameraTargetFace(face) {
+      cameraTargetFace = face;
+      const faceNames = {
+        U: 'ជ្រុងលើ (U - ស)',
+        F: 'ជ្រុងមុខ (F - បៃតង)',
+        R: 'ជ្រុងស្តាំ (R - ក្រហម)',
+        B: 'ជ្រុងក្រោយ (B - ខៀវ)',
+        L: 'ជ្រុងឆ្វេង (L - ទឹកក្រូច)',
+        D: 'ជ្រុងក្រោម (D - លឿង)'
+      };
+      document.getElementById('camera-target-label').textContent = faceNames[face];
+
+      document.querySelectorAll('.cam-face-btn').forEach(btn => {
+        if (btn.dataset.camface === face) {
+          btn.className = 'cam-face-btn min-h-[36px] rounded-lg text-[11px] font-bold border-2 border-emerald-500 bg-slate-800 text-white';
+        } else {
+          btn.className = 'cam-face-btn min-h-[36px] rounded-lg text-[11px] font-medium border border-slate-800 bg-slate-900 text-slate-400';
+        }
+      });
+
+      const wf = WIZARD_FACES.find(item => item.face === face);
+      if (wf) {
+        cameraSpherical = { ...wf.camera };
+        updateCameraPosition();
+      }
+      initCameraMiniPreview();
+      playClickSound(480);
+    }
+
+    async function toggleCamera() {
+      if (cameraStream) {
+        stopCamera();
+      } else {
+        await startCamera();
+      }
+    }
+
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast('កម្មវិធីរុករកនេះមិនគាំទ្រការប្រើប្រាស់កាមេរ៉ាទេ', 'error');
+        return;
+      }
+      try {
+        stopCamera();
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: cameraFacingMode, width: { ideal: 640 }, height: { ideal: 640 } },
+          audio: false
+        });
+        const video = document.getElementById('camera-video');
+        video.srcObject = cameraStream;
+        video.classList.remove('hidden');
+
+        document.getElementById('camera-placeholder').classList.add('hidden');
+        document.getElementById('camera-grid-overlay').classList.remove('hidden');
+        document.getElementById('btn-camera-switch').classList.remove('hidden');
+        document.getElementById('btn-camera-capture').disabled = false;
+
+        const toggleBtn = document.getElementById('btn-camera-toggle');
+        toggleBtn.textContent = 'បិទ';
+        toggleBtn.className = 'touch-btn px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition';
+
+        startCameraSamplingLoop();
+      } catch (err) {
+        console.error('Camera error:', err);
+        showToast('មិនអាចបើកកាមេរ៉ាបានទេ។ សូមអនុញ្ញាតសិទ្ធិប្រើប្រាស់កាមេរ៉ាជាមុនសិន!', 'error');
+      }
+    }
+
+    function stopCamera() {
+      if (cameraLoopId) {
+        cancelAnimationFrame(cameraLoopId);
+        cameraLoopId = null;
+      }
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      const video = document.getElementById('camera-video');
+      if (video) {
+        video.srcObject = null;
+        video.classList.add('hidden');
+      }
+      const placeholder = document.getElementById('camera-placeholder');
+      if (placeholder) placeholder.classList.remove('hidden');
+      const overlay = document.getElementById('camera-grid-overlay');
+      if (overlay) overlay.classList.add('hidden');
+      const switchBtn = document.getElementById('btn-camera-switch');
+      if (switchBtn) switchBtn.classList.add('hidden');
+      const capBtn = document.getElementById('btn-camera-capture');
+      if (capBtn) capBtn.disabled = true;
+
+      const toggleBtn = document.getElementById('btn-camera-toggle');
+      if (toggleBtn) {
+        toggleBtn.textContent = 'បើកកាមេរ៉ា';
+        toggleBtn.className = 'touch-btn px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition';
+      }
+    }
+
+    async function switchCameraFacing() {
+      cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+      if (cameraStream) await startCamera();
+    }
+
+    function classifyRGBToRubikColor(r, g, b) {
+      const rn = r / 255, gn = g / 255, bn = b / 255;
+      const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+      const d = max - min;
+      let h = 0;
+      const s = max === 0 ? 0 : d / max;
+      const v = max;
+
+      if (d !== 0) {
+        if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) * 60;
+        else if (max === gn) h = ((bn - rn) / d + 2) * 60;
+        else h = ((rn - gn) / d + 4) * 60;
+      }
+
+      if (s < 0.28 && v > 0.45) return 'U';
+      if (h >= 335 || h <= 14) return 'R';
+      if (h > 14 && h <= 38) return 'L';
+      if (h > 38 && h <= 78) return 'D';
+      if (h > 78 && h <= 168) return 'F';
+      if (h > 168 && h <= 275) return 'B';
+      return 'R';
+    }
+
+    function startCameraSamplingLoop() {
+      const video = document.getElementById('camera-video');
+      const canvas = document.getElementById('camera-sample-canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      function sampleFrame() {
+        if (!cameraStream) return;
+        if (video.readyState >= 2) {
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+          const size = Math.min(vw, vh);
+          const sx = (vw - size) / 2;
+          const sy = (vh - size) / 2;
+
+          ctx.drawImage(video, sx, sy, size, size, 0, 0, 180, 180);
+
+          const gridStart = 27;
+          const cellStep = 42;
+
+          for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+              const idx = row * 3 + col;
+              if (idx === 4) {
+                cameraDetectedColors[4] = cameraTargetFace;
+              } else {
+                const cx = Math.round(gridStart + col * cellStep + cellStep / 2);
+                const cy = Math.round(gridStart + row * cellStep + cellStep / 2);
+                const imgData = ctx.getImageData(cx - 4, cy - 4, 9, 9).data;
+                let rSum = 0, gSum = 0, bSum = 0, count = 0;
+                for (let p = 0; p < imgData.length; p += 4) {
+                  rSum += imgData[p];
+                  gSum += imgData[p + 1];
+                  bSum += imgData[p + 2];
+                  count++;
+                }
+                cameraDetectedColors[idx] = classifyRGBToRubikColor(rSum / count, gSum / count, bSum / count);
+              }
+
+              const detected = cameraDetectedColors[idx];
+              const overlayCell = document.getElementById(`cam-cell-${idx}`);
+              const miniCell = document.getElementById(`cam-mini-${idx}`);
+              if (overlayCell) overlayCell.style.backgroundColor = COLOR_MAP[detected].css + '55';
+              if (miniCell) miniCell.style.backgroundColor = COLOR_MAP[detected].css;
+            }
+          }
+        }
+        cameraLoopId = requestAnimationFrame(sampleFrame);
+      }
+
+      cameraLoopId = requestAnimationFrame(sampleFrame);
+    }
+
+    function captureCameraFace() {
+      if (!cameraStream) return;
+      inputGridState[cameraTargetFace] = [...cameraDetectedColors];
+      inputGridState[cameraTargetFace][4] = cameraTargetFace;
+
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      render2DNet();
+      updateRealtimeValidationBanner();
+      playClickSound(620);
+
+      showToast(`បានចាប់យកពណ៌ជ្រុង ${cameraTargetFace} រួចរាល់!`, 'success');
+
+      const order = ['U', 'F', 'R', 'B', 'L', 'D'];
+      const nextIdx = (order.indexOf(cameraTargetFace) + 1) % order.length;
+      setCameraTargetFace(order[nextIdx]);
+    }
+
+    function updateRealtimeValidationBanner() {
+      const box = document.getElementById('realtime-validation-box');
+      const dot = document.getElementById('validation-dot');
+      const msg = document.getElementById('validation-message');
+      if (!box || !dot || !msg) return;
+
+      const res = validateCustomState(inputGridState);
+      if (res.valid) {
+        box.className = 'px-3 py-2 rounded-xl border text-[11px] flex items-center gap-2 bg-emerald-950/50 border-emerald-800/80 text-emerald-300';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shrink-0';
+        msg.textContent = 'ពណ៌គូបត្រឹមត្រូវ និងរួចរាល់សម្រាប់ការដោះស្រាយ។';
+      } else {
+        box.className = 'px-3 py-2 rounded-xl border text-[11px] flex items-center gap-2 bg-amber-950/50 border-amber-800/80 text-amber-300';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 shrink-0';
+        msg.textContent = res.message;
+      }
+    }
+
+    function validateCustomState(state) {
+      const counts = { U: 0, D: 0, F: 0, B: 0, L: 0, R: 0, X: 0 };
+      ['U', 'R', 'F', 'D', 'L', 'B'].forEach(face => {
+        state[face].forEach(c => {
+          counts[c] = (counts[c] || 0) + 1;
+        });
+      });
+
+      if (counts.X > 0) {
+        return {
+          valid: false,
+          message: `នៅសល់ក្រឡាចំនួន ${counts.X} ដែលមិនទាន់បានដាក់ពណ៌ (ត្រូវបំពេញគ្រប់ ៥៤ ក្រឡា)។`
+        };
+      }
+
+      for (const c of ['U', 'D', 'F', 'B', 'L', 'R']) {
+        if (counts[c] !== 9) {
+          const diff = counts[c] > 9 ? `លើស ${counts[c] - 9}` : `ខ្វះ ${9 - counts[c]}`;
+          return {
+            valid: false,
+            message: `ពណ៌ «${COLOR_MAP[c].name}» មាន ${counts[c]}/9 ក្រឡា (${diff})។`
+          };
+        }
+      }
+
+      for (const face of ['U', 'D', 'F', 'B', 'L', 'R']) {
+        if (state[face][4] !== face) {
+          return {
+            valid: false,
+            message: `ក្រឡាកណ្តាលនៃជ្រុង ${face} មិនត្រឹមត្រូវតាមស្តង់ដារឡើយ។`
+          };
+        }
+      }
+
+      const opposites = { U: 'D', D: 'U', F: 'B', B: 'F', L: 'R', R: 'L' };
+      const corners = [
+        [['U', 8], ['F', 2], ['R', 0]],
+        [['U', 6], ['L', 2], ['F', 0]],
+        [['U', 0], ['B', 2], ['L', 0]],
+        [['U', 2], ['R', 2], ['B', 0]],
+        [['D', 2], ['R', 6], ['F', 8]],
+        [['D', 0], ['F', 6], ['L', 8]],
+        [['D', 6], ['L', 6], ['B', 8]],
+        [['D', 8], ['B', 6], ['R', 8]]
+      ];
+
+      for (const corner of corners) {
+        const cols = corner.map(([f, idx]) => state[f][idx]);
+        if (new Set(cols).size < 3 || cols.some(c => cols.includes(opposites[c]))) {
+          return {
+            valid: false,
+            message: 'មានគ្រាប់ជ្រុង (Corner) ដែលមានពណ៌ផ្ទុយគ្នានៅជាប់គ្នា ឬស្ទួនពណ៌។'
+          };
+        }
+      }
+
+      const edges = [
+        [['U', 7], ['F', 1]], [['U', 5], ['R', 1]], [['U', 1], ['B', 1]], [['U', 3], ['L', 1]],
+        [['D', 1], ['F', 7]], [['D', 5], ['R', 7]], [['D', 7], ['B', 7]], [['D', 3], ['L', 7]],
+        [['F', 5], ['R', 3]], [['F', 3], ['L', 5]], [['B', 3], ['R', 5]], [['B', 5], ['L', 3]]
+      ];
+
+      for (const edge of edges) {
+        const [c1, c2] = edge.map(([f, idx]) => state[f][idx]);
+        if (c1 === c2 || opposites[c1] === c2) {
+          return {
+            valid: false,
+            message: 'មានគ្រាប់គែម (Edge) ដែលមានពណ៌ផ្ទុយគ្នានៅជាប់គ្នា ឬដូចគ្នា។'
+          };
+        }
+      }
+
+      if (solverReady) {
+        try {
+          const faceletStr = stateToFaceletString(state);
+          const cubeObj = Cube.fromString(faceletStr);
+          const sol = cubeObj.solve();
+          if (sol === null || sol === undefined) {
+            return {
+              valid: false,
+              message: 'ទម្រង់ពណ៌មានបញ្ហាទិសដៅគ្រាប់ជ្រុង/គែម (Parity Error) មិនអាចដោះស្រាយបានទេ។'
+            };
+          }
+          let testState = cloneState(state);
+          const moves = sol.trim() ? sol.trim().split(/\s+/) : [];
+          for (const m of moves) testState = applyMoveToState(testState, m);
+          if (!isStateSolved(testState)) {
+            return {
+              valid: false,
+              message: 'ទម្រង់ពណ៌មិនអាចដោះស្រាយបានទេ (គ្រាប់ជ្រុងបង្វិលខុសទិស ឬប្តូរទីតាំងខុស)។'
+            };
+          }
+        } catch (err) {
+          return {
+            valid: false,
+            message: 'ទម្រង់ពណ៌ដែលបានបញ្ចូលមិនត្រឹមត្រូវតាមលក្ខណៈរូបវន្តនៃគូប 3x3 ឡើយ។'
+          };
+        }
+      }
+
+      return { valid: true };
+    }
+
+    function applyAndSolveInput() {
+      const validation = validateCustomState(inputGridState);
+      if (!validation.valid) {
+        showToast(validation.message, 'error');
+        return;
+      }
+
+      stopCamera();
+      cubeState = cloneState(inputGridState);
+      sync3DCubeFromState(cubeState);
+      solveCurrentCube();
+    }
+
+    /**
+     * ============================================================================
+     * SOLVER INTEGRATION & MOBILE STEP PLAYER
+     * ============================================================================
+     */
+    function initSolverEngine() {
+      const badge = document.getElementById('solver-loading-badge');
+      setTimeout(() => {
+        try {
+          if (typeof Cube !== 'undefined' && Cube.initSolver) {
+            Cube.initSolver();
+            solverReady = true;
+            badge.innerHTML = `
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>ប្រព័ន្ធគណនារួចរាល់</span>
+            `;
+            setTimeout(() => badge.classList.add('opacity-0', 'pointer-events-none', 'transition-opacity', 'duration-500'), 1800);
+          }
+        } catch (e) {
+          console.error('Solver init error:', e);
+          badge.innerHTML = `<span class="text-rose-400">មានបញ្ហាក្នុងការដំណើរការប្រព័ន្ធគណនា</span>`;
+        }
+      }, 150);
+    }
+
+    function solveCurrentCube() {
+      if (isAnimating || moveQueue.length > 0) {
+        showToast('សូមរង់ចាំឱ្យចលនាបច្ចុប្បន្នបញ្ចប់សិន', 'info');
+        return;
+      }
+      stopAutoPlay();
+
+      if (currentMode === 'input') {
+        const validation = validateCustomState(inputGridState);
+        if (!validation.valid) {
+          showToast(validation.message, 'error');
+          return;
+        }
+        cubeState = cloneState(inputGridState);
+        sync3DCubeFromState(cubeState);
+      }
+
+      if (isStateSolved(cubeState)) {
+        showToast('គូបនេះស្ថិតក្នុងសភាពដោះស្រាយរួចរាល់ស្រាប់ហើយ!', 'success');
+        return;
+      }
+
+      if (!solverReady) {
+        showToast('ប្រព័ន្ធគណនាកំពុងរៀបចំ សូមព្យាយាមម្តងទៀតក្នុងពេលបន្តិច...', 'info');
+        return;
+      }
+
+      try {
+        const faceletStr = stateToFaceletString(cubeState);
+        const cubeInstance = Cube.fromString(faceletStr);
+        const rawSolution = cubeInstance.solve();
+
+        if (rawSolution === null || rawSolution === undefined) {
+          showToast('ទម្រង់គូបនេះមិនអាចដោះស្រាយបានតាមលក្ខណៈរូបវន្តទេ', 'error');
+          return;
+        }
+
+        const moves = rawSolution.trim() ? rawSolution.trim().split(/\s+/) : [];
+        let testState = cloneState(cubeState);
+        for (const m of moves) testState = applyMoveToState(testState, m);
+        if (!isStateSolved(testState)) {
+          showToast('ទម្រង់ពណ៌មិនត្រឹមត្រូវតាមលក្ខណៈរូបវន្តនៃគូប 3x3 ឡើយ!', 'error');
+          return;
+        }
+
+        solutionMoves = moves;
+        currentSolutionIndex = 0;
+
+        // Open Mobile Solution Player sheet view
+        document.getElementById('panel-play').classList.add('hidden');
+        document.getElementById('panel-input').classList.add('hidden');
+        document.getElementById('touch-3d-action-bar').classList.add('hidden');
+        document.getElementById('panel-solution').classList.remove('hidden');
+
+        document.getElementById('solution-summary').textContent = `ដំណោះស្រាយសរុប ${solutionMoves.length} ជំហាន`;
+        renderSolutionMovesUI();
+        updatePlaybackControls();
+        playClickSound(640);
+      } catch (err) {
+        console.error(err);
+        showToast('ទម្រង់ពណ៌ដែលបានបញ្ចូលមិនអាចដោះស្រាយបានទេ (Parity Error)។ សូមពិនិត្យពណ៌ឡើងវិញ!', 'error');
+      }
+    }
+
+    function exitSolutionPlayer() {
+      stopAutoPlay();
+      document.getElementById('panel-solution').classList.add('hidden');
+      if (currentMode === 'play') {
+        document.getElementById('panel-play').classList.remove('hidden');
+      } else {
+        inputGridState = cloneState(cubeState);
+        document.getElementById('panel-input').classList.remove('hidden');
+        switchInputSubMode(inputSubMode);
+      }
+      playClickSound(440);
+    }
+
+    function renderSolutionMovesUI() {
+      const box = document.getElementById('moves-sequence-box');
+      const bigMoveEl = document.getElementById('player-big-move');
+      const expEl = document.getElementById('player-move-explanation');
+
+      box.innerHTML = solutionMoves.map((mv, idx) => {
+        let chipClass = 'bg-slate-800 border-slate-700 text-slate-300';
+        if (idx < currentSolutionIndex) {
+          chipClass = 'bg-emerald-950/80 border-emerald-800 text-emerald-400 opacity-70';
+        } else if (idx === currentSolutionIndex) {
+          chipClass = 'bg-emerald-600 border-emerald-400 text-white scale-105 shadow-md';
+        }
+
+        return `<span id="move-chip-${idx}" class="move-chip font-mono-code text-xs sm:text-sm font-bold px-3 py-1.5 rounded-xl border shrink-0 ${chipClass}">${mv}</span>`;
+      }).join('');
+
+      document.getElementById('step-counter').textContent = `ជំហានទី ${currentSolutionIndex} / ${solutionMoves.length}`;
+
+      if (currentSolutionIndex < solutionMoves.length) {
+        const nextMove = solutionMoves[currentSolutionIndex];
+        bigMoveEl.textContent = nextMove;
+        bigMoveEl.className = 'font-mono-code text-2xl sm:text-3xl font-bold w-16 h-16 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/60';
+        expEl.textContent = MOVE_DESCRIPTIONS[nextMove] || nextMove;
+      } else {
+        bigMoveEl.textContent = 'រួច';
+        bigMoveEl.className = 'text-base sm:text-lg font-bold w-16 h-16 rounded-2xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-lg';
+        expEl.textContent = 'អបអរសាទរ! គូបត្រូវបានដោះស្រាយរួចរាល់ជាស្ថាពរ';
+      }
+
+      const activeChip = document.getElementById(`move-chip-${currentSolutionIndex}`);
+      if (activeChip) {
+        activeChip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+
+    function updatePlaybackControls() {
+      const hasSol = solutionMoves.length > 0;
+      document.getElementById('btn-prev-step').disabled = !hasSol || currentSolutionIndex <= 0 || isAnimating;
+      document.getElementById('btn-next-step').disabled = !hasSol || currentSolutionIndex >= solutionMoves.length || isAnimating;
+      document.getElementById('btn-play-pause').disabled = !hasSol || currentSolutionIndex >= solutionMoves.length;
+
+      const playText = document.getElementById('play-pause-text');
+      if (playText) playText.textContent = isAutoPlaying ? 'ផ្អាក' : 'លេង';
+    }
+
+    function stepForward(onDone = null) {
+      if (isAnimating || currentSolutionIndex >= solutionMoves.length) return;
+      const move = solutionMoves[currentSolutionIndex];
+      currentSolutionIndex++;
+      renderSolutionMovesUI();
+      updatePlaybackControls();
+
+      animateMove(move, null, () => {
+        updatePlaybackControls();
+        if (currentSolutionIndex === solutionMoves.length) {
+          stopAutoPlay();
+          showToast('គូបត្រូវបានដោះស្រាយរួចរាល់!', 'success');
+        }
+        if (onDone) onDone();
+      });
+    }
+
+    function stepBackward() {
+      if (isAnimating || currentSolutionIndex <= 0) return;
+      stopAutoPlay();
+      currentSolutionIndex--;
+      const moveToUndo = solutionMoves[currentSolutionIndex];
+      const inverseMove = getInverseMove(moveToUndo);
+
+      renderSolutionMovesUI();
+      updatePlaybackControls();
+
+      animateMove(inverseMove, null, () => {
+        updatePlaybackControls();
+      });
+    }
+
+    function toggleAutoPlay() {
+      if (isAutoPlaying) {
+        stopAutoPlay();
+      } else {
+        if (currentSolutionIndex >= solutionMoves.length) return;
+        isAutoPlaying = true;
+        updatePlaybackControls();
+        runAutoPlayStep();
+      }
+    }
+
+    function runAutoPlayStep() {
+      if (!isAutoPlaying || currentSolutionIndex >= solutionMoves.length) {
+        stopAutoPlay();
+        return;
+      }
+      stepForward(() => {
+        if (isAutoPlaying && currentSolutionIndex < solutionMoves.length) {
+          autoPlayTimer = setTimeout(runAutoPlayStep, 140);
+        } else {
+          stopAutoPlay();
+        }
+      });
+    }
+
+    function stopAutoPlay() {
+      isAutoPlaying = false;
+      if (autoPlayTimer) {
+        clearTimeout(autoPlayTimer);
+        autoPlayTimer = null;
+      }
+      updatePlaybackControls();
+    }
+
+    /**
+     * ============================================================================
+     * KEYBOARD SHORTCUTS & SPEED CONTROL
+     * ============================================================================
+     */
+    function setupControls() {
+      const slider = document.getElementById('speed-slider');
+      const label = document.getElementById('speed-label');
+
+      slider.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        animationDuration = 900 - val;
+        if (animationDuration <= 220) label.textContent = 'លឿន';
+        else if (animationDuration <= 480) label.textContent = 'មធ្យម';
+        else label.textContent = 'យឺត';
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (currentMode !== 'play') return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        const key = e.key.toUpperCase();
+        if (['U', 'D', 'L', 'R', 'F', 'B'].includes(key)) {
+          e.preventDefault();
+          const move = e.shiftKey ? key + "'" : key;
+          queueUserMove(move);
+        }
+      });
+    }
+
+    window.onload = function () {
+      initThreeJS();
+      render2DNet();
+      renderPaletteWithCounts();
+      setupControls();
+      initSolverEngine();
+    };
+  </script>
+</body>
+</html>
